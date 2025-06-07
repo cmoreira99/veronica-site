@@ -2,6 +2,8 @@
 session_start();
 include 'env_loader.php';
 
+loadDotEnv(__DIR__ . '/.env');
+
 // Load environment variables from .env file
 function loadEnv($filePath)
 {

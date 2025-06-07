@@ -19,6 +19,3 @@ function loadDotEnv($path)
     }
 }
 
-// Usage: call this once before you access $_ENV
-loadDotEnv(__DIR__ . '/.env');
-
