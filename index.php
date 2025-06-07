@@ -5,11 +5,11 @@ require_once 'env_loader.php';
 loadDotEnv(__DIR__ . '/.env');
 
 // Configuration from environment variables
-define('GITHUB_OWNER', $_ENV['GITHUB_OWNER'] ?? 'cmoreira99');
-define('GITHUB_REPO', $_ENV['GITHUB_REPO'] ?? 'veronica-website');
-define('DATA_FILE', $_ENV['DATA_FILE'] ?? 'website-data.json');
-define('ADMIN_USERNAME', $_ENV['ADMIN_USERNAME'] ?? 'veronica');
-define('ADMIN_PASSWORD', $_ENV['ADMIN_PASSWORD'] ?? 'veronica');
+define('GITHUB_OWNER', $_ENV['GITHUB_OWNER'] ?? null);
+define('GITHUB_REPO', $_ENV['GITHUB_REPO'] ?? null);
+define('DATA_FILE', $_ENV['DATA_FILE'] ?? null);
+define('ADMIN_USERNAME', $_ENV['ADMIN_USERNAME'] ?? false);
+define('ADMIN_PASSWORD', $_ENV['ADMIN_PASSWORD'] ?? false);
 define('DEBUG_MODE', ($_ENV['DEBUG_MODE'] ?? 'false') === 'true');
 
 // Initialize session variables
@@ -2098,6 +2098,159 @@ function renderAdvocacySection($advocacy)
             color: #667eea;
         }
 
+        /* Mobile Menu Button */
+        .mobile-menu-button {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background-color: rgba(255, 255, 255, 0.15);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+        }
+
+        .mobile-menu-button:hover {
+            background-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        /* Mobile Navigation Overlay */
+        .mobile-nav-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .mobile-nav-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .mobile-nav {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 300px;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            z-index: 10000;
+            transition: all 0.3s ease;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .mobile-nav.active {
+            right: 0;
+        }
+
+        .mobile-nav-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .mobile-nav-title {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .mobile-nav-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .mobile-nav-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .mobile-nav-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .mobile-nav-item {
+            margin-bottom: 8px;
+        }
+
+        .mobile-nav-button {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            padding: 16px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 16px;
+            font-weight: 500;
+            text-align: left;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .mobile-nav-button:hover,
+        .mobile-nav-button.active {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateX(5px);
+        }
+
+        .mobile-nav-submenu {
+            margin-left: 20px;
+            margin-top: 8px;
+            padding-left: 16px;
+            border-left: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .mobile-nav-submenu-item {
+            margin-bottom: 4px;
+        }
+
+        .mobile-nav-subbutton {
+            display: block;
+            width: 100%;
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            text-align: left;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .mobile-nav-subbutton:hover,
+        .mobile-nav-subbutton.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            transform: translateX(5px);
+        }
+
         /* Main Content */
         .main {
             max-width: 1400px;
@@ -3173,8 +3326,13 @@ function renderAdvocacySection($advocacy)
                 gap: 4px;
             }
 
+            /* Hide desktop nav, show mobile menu button */
             .nav {
                 display: none;
+            }
+
+            .mobile-menu-button {
+                display: flex;
             }
 
             .main {
@@ -3226,6 +3384,21 @@ function renderAdvocacySection($advocacy)
                 right: 10px;
                 padding: 8px;
                 font-size: 10px;
+            }
+
+            /* Mobile Nav styles adjustments */
+            .mobile-nav {
+                width: 280px;
+            }
+
+            .mobile-nav-button {
+                padding: 12px;
+                font-size: 14px;
+            }
+
+            .mobile-nav-subbutton {
+                padding: 8px 12px;
+                font-size: 13px;
             }
         }
 
@@ -3423,7 +3596,7 @@ function renderAdvocacySection($advocacy)
                     </div>
                 </div>
 
-                <!-- Navigation -->
+                <!-- Desktop Navigation -->
                 <nav class="nav">
                     <?php foreach (generateMenuItems() as $item): ?>
                         <?php
@@ -3466,8 +3639,70 @@ function renderAdvocacySection($advocacy)
                         </div>
                     <?php endforeach; ?>
                 </nav>
+
+                <!-- Mobile Menu Button -->
+                <button class="mobile-menu-button" onclick="toggleMobileMenu()">
+                    <i class="fas fa-bars"></i>
+                    <span>Menu</span>
+                </button>
             </div>
         </header>
+
+        <!-- Mobile Navigation Overlay -->
+        <div class="mobile-nav-overlay" id="mobileNavOverlay" onclick="closeMobileMenu()"></div>
+
+        <!-- Mobile Navigation -->
+        <nav class="mobile-nav" id="mobileNav">
+            <div class="mobile-nav-header">
+                <span class="mobile-nav-title">Navigation</span>
+                <button class="mobile-nav-close" onclick="closeMobileMenu()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <ul class="mobile-nav-list">
+                <?php foreach (generateMenuItems() as $item): ?>
+                    <?php
+                    $isActive = $_SESSION['activeSection'] === $item['id'];
+                    if (isset($item['subItems'])) {
+                        foreach ($item['subItems'] as $subItem) {
+                            if ($_SESSION['activeSection'] === $subItem['id']) {
+                                $isActive = true;
+                                break;
+                            }
+                        }
+                    }
+                    ?>
+                    <li class="mobile-nav-item">
+                        <form method="POST" style="width: 100%;">
+                            <input type="hidden" name="action" value="navigate">
+                            <input type="hidden" name="section" value="<?= $item['id'] ?>">
+                            <button type="submit" class="mobile-nav-button <?= $isActive ? 'active' : '' ?>">
+                                <i class="<?= $item['icon'] ?>"></i>
+                                <span><?= htmlspecialchars($item['label']) ?></span>
+                            </button>
+                        </form>
+
+                        <?php if (isset($item['subItems']) && !empty($item['subItems'])): ?>
+                            <ul class="mobile-nav-submenu">
+                                <?php foreach ($item['subItems'] as $subItem): ?>
+                                    <li class="mobile-nav-submenu-item">
+                                        <form method="POST" style="width: 100%;">
+                                            <input type="hidden" name="action" value="navigate">
+                                            <input type="hidden" name="section" value="<?= $subItem['id'] ?>">
+                                            <button type="submit"
+                                                class="mobile-nav-subbutton <?= $_SESSION['activeSection'] === $subItem['id'] ? 'active' : '' ?>">
+                                                <?= htmlspecialchars($subItem['label']) ?>
+                                            </button>
+                                        </form>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </nav>
 
         <!-- Main Content -->
         <main class="main">
@@ -3520,6 +3755,35 @@ function renderAdvocacySection($advocacy)
     <div id="saveStatus" class="save-status"></div>
 
     <script>
+        // ===================================
+        // MOBILE NAVIGATION FUNCTIONS
+        // ===================================
+
+        function toggleMobileMenu() {
+            const overlay = document.getElementById('mobileNavOverlay');
+            const nav = document.getElementById('mobileNav');
+
+            overlay.classList.add('active');
+            nav.classList.add('active');
+            document.body.style.overflow = 'hidden'; // Prevent scrolling when menu is open
+        }
+
+        function closeMobileMenu() {
+            const overlay = document.getElementById('mobileNavOverlay');
+            const nav = document.getElementById('mobileNav');
+
+            overlay.classList.remove('active');
+            nav.classList.remove('active');
+            document.body.style.overflow = ''; // Restore scrolling
+        }
+
+        // Close mobile menu when window is resized to desktop
+        window.addEventListener('resize', function () {
+            if (window.innerWidth > 768) {
+                closeMobileMenu();
+            }
+        });
+
         // ===================================
         // FIXED SAVE SYSTEM - PROPER FORM DATA HANDLING
         // ===================================
@@ -3641,11 +3905,6 @@ function renderAdvocacySection($advocacy)
                 console.log(`  ${key}: ${value}`);
             }
 
-            // Send to server
-            fetch('', {
-                method: 'POST',
-                body: formData
-            })
             // Send to server
             fetch('', {
                 method: 'POST',
@@ -4341,7 +4600,7 @@ function renderAdvocacySection($advocacy)
             setTimeout(debugFormState, 1000);
         });
 
-        console.log('🚀 Robust save system loaded and ready!');
+        console.log('🚀 Robust save system with mobile navigation loaded and ready!');
     </script>
 </body>
 
