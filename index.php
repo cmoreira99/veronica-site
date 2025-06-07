@@ -1,5 +1,6 @@
 <?php
 session_start();
+include 'env_loader.php';
 
 // Load environment variables from .env file
 function loadEnv($filePath)
