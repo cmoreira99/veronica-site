@@ -1,13 +1,64 @@
 <?php
 session_start();
 
-// Configuration
-// SECURITY: GitHub token is now entered via login form, not hardcoded
-define('GITHUB_OWNER', 'cmoreira99');
-define('GITHUB_REPO', 'veronica-website');
-define('DATA_FILE', 'website-data.json');
-define('ADMIN_USERNAME', 'veronica');
-define('ADMIN_PASSWORD', 'veronica');
+// Load environment variables from .env file
+function loadEnv($filePath)
+{
+    if (!file_exists($filePath)) {
+        return false;
+    }
+
+    $lines = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) {
+            continue; // Skip comments
+        }
+
+        list($name, $value) = explode('=', $line, 2);
+        $name = trim($name);
+        $value = trim($value);
+
+        // Remove quotes if present
+        if (preg_match('/^"(.*)"$/', $value, $matches)) {
+            $value = $matches[1];
+        } elseif (preg_match('/^\'(.*)\'$/', $value, $matches)) {
+            $value = $matches[1];
+        }
+
+        $_ENV[$name] = $value;
+        putenv("$name=$value");
+    }
+    return true;
+}
+
+// Load .env file
+$envLoaded = loadEnv('.env');
+if (!$envLoaded) {
+    // Create default .env file if it doesn't exist
+    $defaultEnv = '# GitHub Configuration
+GITHUB_TOKEN=your_github_token_here
+GITHUB_OWNER=cmoreira99
+GITHUB_REPO=veronica-website
+DATA_FILE=website-data.json
+
+# Admin Configuration  
+ADMIN_USERNAME=veronica
+ADMIN_PASSWORD=veronica
+
+# Set to true for development, false for production
+DEBUG_MODE=false
+';
+    file_put_contents('.env', $defaultEnv);
+    error_log("⚠️ Created default .env file. Please update with your GitHub token.");
+}
+
+// Configuration from environment variables
+define('GITHUB_OWNER', $_ENV['GITHUB_OWNER'] ?? 'cmoreira99');
+define('GITHUB_REPO', $_ENV['GITHUB_REPO'] ?? 'veronica-website');
+define('DATA_FILE', $_ENV['DATA_FILE'] ?? 'website-data.json');
+define('ADMIN_USERNAME', $_ENV['ADMIN_USERNAME'] ?? 'veronica');
+define('ADMIN_PASSWORD', $_ENV['ADMIN_PASSWORD'] ?? 'veronica');
+define('DEBUG_MODE', ($_ENV['DEBUG_MODE'] ?? 'false') === 'true');
 
 // Initialize session variables
 if (!isset($_SESSION['content'])) {
@@ -38,30 +89,57 @@ function handleRobustSave()
 {
     $action = $_POST['action'] ?? '';
 
-    // Simple login handler
+    // Simple login handler with optional GitHub token
     if ($action === 'login') {
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
         $githubToken = $_POST['github_token'] ?? '';
 
-        if ($username === ADMIN_USERNAME && $password === ADMIN_PASSWORD && !empty($githubToken)) {
-            // Verify GitHub token by testing API access
-            if (verifyGitHubToken($githubToken)) {
-                $_SESSION['isAdmin'] = true;
-                $_SESSION['showLogin'] = false;
-                $_SESSION['github_token'] = $githubToken;
-                error_log("✅ Admin login successful with valid GitHub token");
+        // Check basic credentials first
+        if ($username !== ADMIN_USERNAME || $password !== ADMIN_PASSWORD) {
+            $GLOBALS['loginError'] = 'Invalid username or password!';
+            error_log("❌ Login failed: Invalid credentials");
+            return;
+        }
+
+        // Determine which token to use
+        $tokenToUse = null;
+        $tokenSource = '';
+
+        if (!empty($githubToken)) {
+            // Admin provided a token, use it
+            $tokenToUse = $githubToken;
+            $tokenSource = 'admin-provided';
+        } else {
+            // Check if .env token is available
+            $envToken = getEnvGitHubToken();
+            if ($envToken && $envToken !== 'your_github_token_here') {
+                $tokenToUse = $envToken;
+                $tokenSource = 'env-file';
+            }
+        }
+
+        if (!$tokenToUse) {
+            $GLOBALS['loginError'] = 'GitHub token is required! Either provide one or configure .env file.';
+            error_log("❌ Login failed: No GitHub token available");
+            return;
+        }
+
+        // Verify the token works
+        if (verifyGitHubToken($tokenToUse)) {
+            $_SESSION['isAdmin'] = true;
+            $_SESSION['showLogin'] = false;
+
+            // Only store admin-provided tokens in session
+            if ($tokenSource === 'admin-provided') {
+                $_SESSION['github_token'] = $tokenToUse;
+                error_log("✅ Admin login successful with admin-provided GitHub token");
             } else {
-                $GLOBALS['loginError'] = 'Invalid GitHub token or no repository access!';
-                error_log("❌ Login failed: Invalid GitHub token");
+                error_log("✅ Admin login successful using .env GitHub token");
             }
         } else {
-            if (empty($githubToken)) {
-                $GLOBALS['loginError'] = 'GitHub token is required!';
-            } else {
-                $GLOBALS['loginError'] = 'Invalid username or password!';
-            }
-            error_log("❌ Login failed: Invalid credentials");
+            $GLOBALS['loginError'] = 'Invalid GitHub token or no repository access!';
+            error_log("❌ Login failed: Invalid GitHub token ($tokenSource)");
         }
         return;
     }
@@ -468,20 +546,54 @@ function verifyGitHubToken($token)
 }
 
 // ===================================
-// GITHUB TOKEN HELPER
+// GITHUB TOKEN HELPER FUNCTIONS
 // ===================================
-function getGitHubToken()
+function getEnvGitHubToken()
+{
+    return $_ENV['GITHUB_TOKEN'] ?? null;
+}
+
+function getAdminGitHubToken()
 {
     return $_SESSION['github_token'] ?? null;
+}
+
+function getGitHubTokenForReading()
+{
+    // For reading operations, prefer .env token so visitors can see content
+    $envToken = getEnvGitHubToken();
+    if ($envToken && $envToken !== 'your_github_token_here') {
+        return $envToken;
+    }
+
+    // Fallback to admin token if available
+    return getAdminGitHubToken();
+}
+
+function getGitHubTokenForWriting()
+{
+    // For writing operations, require admin token for security
+    $adminToken = getAdminGitHubToken();
+    if ($adminToken) {
+        return $adminToken;
+    }
+
+    // Fallback to .env token only if no admin token (for initial setup)
+    $envToken = getEnvGitHubToken();
+    if ($envToken && $envToken !== 'your_github_token_here') {
+        return $envToken;
+    }
+
+    return null;
 }
 // ===================================
 // DIRECT GITHUB SAVE - NO SYNC INTERFERENCE
 // ===================================
 function saveDirectlyToGitHub($content)
 {
-    $githubToken = getGitHubToken();
+    $githubToken = getGitHubTokenForWriting();
     if (!$githubToken) {
-        return ['success' => false, 'error' => 'No GitHub token available - please login again'];
+        return ['success' => false, 'error' => 'No GitHub token available for writing - please login with admin token'];
     }
 
     try {
@@ -606,8 +718,9 @@ function saveDirectlyToGitHub($content)
 // ===================================
 function safeGitHubSync()
 {
-    $githubToken = getGitHubToken();
+    $githubToken = getGitHubTokenForReading();
     if (!$githubToken) {
+        error_log("⚠️ No GitHub token available for reading content");
         return 'offline';
     }
 
@@ -643,13 +756,24 @@ function safeGitHubSync()
     return 'offline';
 }
 
-// Only sync on first load or non-edit pages
+// Load content and determine cloud status
 $cloudStatus = 'offline';
-if (empty($_POST) && (!$_SESSION['editMode'] || !$_SESSION['isAdmin'])) {
+
+// Always try to sync content from GitHub for visitors
+if (empty($_POST)) {
     $cloudStatus = safeGitHubSync();
 } else {
-    // Check if we have a GitHub token in session
-    $cloudStatus = getGitHubToken() ? 'online' : 'offline';
+    // For admin operations, check if we have write access
+    $writeToken = getGitHubTokenForWriting();
+    $readToken = getGitHubTokenForReading();
+
+    if ($writeToken) {
+        $cloudStatus = 'online-write'; // Full admin access
+    } elseif ($readToken) {
+        $cloudStatus = 'online-read'; // Read-only access
+    } else {
+        $cloudStatus = 'offline';
+    }
 }
 
 function handleOtherOperations($action)
@@ -3171,22 +3295,40 @@ function renderAdvocacySection($advocacy)
         <div class="login-modal">
             <div class="login-card">
                 <h2 style="font-size: 24px; font-weight: bold; text-align: center; margin-bottom: 24px;">🔐 Admin Login</h2>
-                <p style="color: #6b7280; text-align: center; margin-bottom: 24px; font-size: 14px;">
-                    Enter your credentials and GitHub token to access admin features
-                </p>
+
+                <?php
+                $envToken = getEnvGitHubToken();
+                $hasEnvToken = $envToken && $envToken !== 'your_github_token_here';
+                ?>
+
+                <div
+                    style="background: <?= $hasEnvToken ? '#f0f9ff' : '#fef3c7' ?>; padding: 12px; border-radius: 8px; margin-bottom: 20px; border: 1px solid <?= $hasEnvToken ? '#0ea5e9' : '#f59e0b' ?>;">
+                    <div
+                        style="color: <?= $hasEnvToken ? '#0369a1' : '#92400e' ?>; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                        <i class="fas <?= $hasEnvToken ? 'fa-check-circle' : 'fa-exclamation-triangle' ?>"></i>
+                        <?php if ($hasEnvToken): ?>
+                            <span><strong>GitHub token found in .env</strong> - You can login without entering a token</span>
+                        <?php else: ?>
+                            <span><strong>No .env token configured</strong> - Please provide your GitHub token below</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
                 <?php if (isset($GLOBALS['loginError'])): ?>
                     <div
                         style="color: #ef4444; text-align: center; margin-bottom: 16px; background: #fef2f2; padding: 12px; border-radius: 8px; border: 1px solid #fecaca;">
                         <i class="fas fa-exclamation-triangle"></i> <?= $GLOBALS['loginError'] ?>
                     </div>
                 <?php endif; ?>
+
                 <form method="POST">
                     <input type="hidden" name="action" value="login">
                     <div class="form-group">
                         <label class="form-label">
                             <i class="fas fa-user"></i> Username
                         </label>
-                        <input type="text" name="username" class="form-input" required placeholder="Enter admin username">
+                        <input type="text" name="username" class="form-input" required placeholder="Enter admin username"
+                            value="veronica">
                     </div>
                     <div class="form-group">
                         <label class="form-label">
@@ -3198,11 +3340,15 @@ function renderAdvocacySection($advocacy)
                     <div class="form-group">
                         <label class="form-label">
                             <i class="fab fa-github"></i> GitHub Personal Access Token
+                            <span style="color: #6b7280; font-weight: normal;">
+                                <?= $hasEnvToken ? '(Optional - will use .env token if not provided)' : '(Required)' ?>
+                            </span>
                         </label>
-                        <input type="password" name="github_token" class="form-input" required
-                            placeholder="ghp_xxxxxxxxxxxx">
+                        <input type="password" name="github_token" class="form-input" <?= $hasEnvToken ? '' : 'required' ?>
+                            placeholder="<?= $hasEnvToken ? 'ghp_xxxxxxxxxxxx (optional)' : 'ghp_xxxxxxxxxxxx (required)' ?>">
                         <div style="color: #6b7280; font-size: 12px; margin-top: 4px;">
-                            <i class="fas fa-info-circle"></i> Required for saving changes to GitHub repository
+                            <i class="fas fa-info-circle"></i>
+                            <?= $hasEnvToken ? 'Leave empty to use .env token, or provide your own for write access' : 'Required for saving changes to GitHub repository' ?>
                         </div>
                     </div>
                     <div class="form-row">
@@ -3215,6 +3361,20 @@ function renderAdvocacySection($advocacy)
                     </div>
                 </form>
 
+                <?php if (!$hasEnvToken): ?>
+                    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+                        <div style="background: #f9fafb; padding: 16px; border-radius: 8px; border: 1px solid #d1d5db;">
+                            <h4 style="margin: 0 0 8px 0; color: #374151; font-size: 14px;">
+                                <i class="fas fa-lightbulb" style="color: #f59e0b;"></i> Pro Tip: Configure .env file
+                            </h4>
+                            <p style="margin: 0; color: #6b7280; font-size: 12px;">
+                                Create a <code>.env</code> file with <code>GITHUB_TOKEN=your_token_here</code> so visitors can
+                                see content without requiring login.
+                            </p>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
                 <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
                     <details style="color: #6b7280; font-size: 12px;">
                         <summary style="cursor: pointer; color: #3b82f6;">
@@ -3223,7 +3383,7 @@ function renderAdvocacySection($advocacy)
                         <div style="margin-top: 8px; padding-left: 16px;">
                             <p>1. Go to GitHub → Settings → Developer settings → Personal access tokens</p>
                             <p>2. Generate new token (classic) with <strong>repo</strong> permissions</p>
-                            <p>3. Copy the token and paste it above</p>
+                            <p>3. Copy the token and use it above or in your .env file</p>
                             <p style="color: #ef4444; margin-top: 4px;">
                                 <i class="fas fa-shield-alt"></i> Keep your token secure - don't share it!
                             </p>
@@ -3245,14 +3405,27 @@ function renderAdvocacySection($advocacy)
                         <?php if ($_SESSION['isAdmin']): ?>
                             <div
                                 style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255, 255, 255, 0.8);">
+                                <?php
+                                $statusColor = '#ef4444'; // default red
+                                $statusText = 'Offline';
+
+                                if ($cloudStatus === 'online-write') {
+                                    $statusColor = '#10b981'; // green
+                                    $statusText = '🔗 Full Access (Read+Write)';
+                                } elseif ($cloudStatus === 'online-read') {
+                                    $statusColor = '#f59e0b'; // yellow
+                                    $statusText = '👁️ Read-Only Access';
+                                } elseif ($cloudStatus === 'online') {
+                                    $statusColor = '#10b981'; // green
+                                    $statusText = '🔗 GitHub Connected';
+                                } else {
+                                    $statusText = '⚠️ GitHub Offline';
+                                }
+                                ?>
                                 <div
-                                    style="width: 8px; height: 8px; border-radius: 50%; background-color: <?= $cloudStatus === 'online' ? '#10b981' : '#ef4444' ?>;">
+                                    style="width: 8px; height: 8px; border-radius: 50%; background-color: <?= $statusColor ?>;">
                                 </div>
-                                <?php if ($cloudStatus === 'online'): ?>
-                                    <span>🔗 GitHub Connected</span>
-                                <?php else: ?>
-                                    <span>⚠️ GitHub Token Required</span>
-                                <?php endif; ?>
+                                <span><?= $statusText ?></span>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -3355,21 +3528,37 @@ function renderAdvocacySection($advocacy)
             <div class="footer-content">
                 <p style="font-size: 16px; font-weight: 500; margin-bottom: 8px;">&copy; 2024 My Personal Website. All
                     rights reserved.</p>
-                <p style="color: #cbd5e1; font-size: 14px;">Built with ❤️ and PHP | Admin: veronica/veronica</p>
+                <p style="color: #cbd5e1; font-size: 14px;">Built with ❤️ and PHP | Secure .env configuration</p>
+
+                <?php
+                $envToken = getEnvGitHubToken();
+                $hasEnvToken = $envToken && $envToken !== 'your_github_token_here';
+                ?>
+
                 <?php if ($_SESSION['isAdmin']): ?>
-                    <?php if ($cloudStatus === 'offline'): ?>
-                        <p style="color: #fbbf24; font-size: 12px; margin-top: 8px;">
-                            🔐 GitHub token required for saving changes. Please login again.
+                    <?php if ($cloudStatus === 'online-write'): ?>
+                        <p style="color: #10b981; font-size: 12px; margin-top: 8px;">
+                            ✅ Full GitHub access - Changes will be saved automatically!
+                        </p>
+                    <?php elseif ($cloudStatus === 'online-read'): ?>
+                        <p style="color: #f59e0b; font-size: 12px; margin-top: 8px;">
+                            👁️ Read-only access - Please provide admin token for saving changes
                         </p>
                     <?php else: ?>
-                        <p style="color: #10b981; font-size: 12px; margin-top: 8px;">
-                            ✅ Connected to GitHub - Changes will be saved automatically!
+                        <p style="color: #ef4444; font-size: 12px; margin-top: 8px;">
+                            🔐 No GitHub access - Please login with valid token
                         </p>
                     <?php endif; ?>
                 <?php else: ?>
-                    <p style="color: #6b7280; font-size: 12px; margin-top: 8px;">
-                        🔒 Secure GitHub integration - Token required for admin access
-                    </p>
+                    <?php if ($hasEnvToken): ?>
+                        <p style="color: #10b981; font-size: 12px; margin-top: 8px;">
+                            🌍 Content loaded from GitHub via secure .env configuration
+                        </p>
+                    <?php else: ?>
+                        <p style="color: #f59e0b; font-size: 12px; margin-top: 8px;">
+                            ⚙️ Configure .env file for automatic GitHub content loading
+                        </p>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </footer>
