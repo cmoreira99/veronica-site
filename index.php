@@ -1,59 +1,8 @@
 <?php
 session_start();
-include 'env_loader.php';
+require_once 'env_loader.php';
 
 loadDotEnv(__DIR__ . '/.env');
-
-// Load environment variables from .env file
-function loadEnv($filePath)
-{
-    if (!file_exists($filePath)) {
-        return false;
-    }
-
-    $lines = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        if (strpos(trim($line), '#') === 0) {
-            continue; // Skip comments
-        }
-
-        list($name, $value) = explode('=', $line, 2);
-        $name = trim($name);
-        $value = trim($value);
-
-        // Remove quotes if present
-        if (preg_match('/^"(.*)"$/', $value, $matches)) {
-            $value = $matches[1];
-        } elseif (preg_match('/^\'(.*)\'$/', $value, $matches)) {
-            $value = $matches[1];
-        }
-
-        $_ENV[$name] = $value;
-        putenv("$name=$value");
-    }
-    return true;
-}
-
-// Load .env file
-$envLoaded = loadEnv('.env');
-if (!$envLoaded) {
-    // Create default .env file if it doesn't exist
-    $defaultEnv = '# GitHub Configuration
-GITHUB_TOKEN=your_github_token_here
-GITHUB_OWNER=cmoreira99
-GITHUB_REPO=veronica-website
-DATA_FILE=website-data.json
-
-# Admin Configuration  
-ADMIN_USERNAME=veronica
-ADMIN_PASSWORD=veronica
-
-# Set to true for development, false for production
-DEBUG_MODE=false
-';
-    file_put_contents('.env', $defaultEnv);
-    error_log("⚠️ Created default .env file. Please update with your GitHub token.");
-}
 
 // Configuration from environment variables
 define('GITHUB_OWNER', $_ENV['GITHUB_OWNER'] ?? 'cmoreira99');
