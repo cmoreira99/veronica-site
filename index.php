@@ -3452,8 +3452,7 @@ function renderAdvocacySection($advocacy)
                         <label class="form-label">
                             <i class="fas fa-user"></i> Username
                         </label>
-                        <input type="text" name="username" class="form-input" required placeholder="Enter admin username"
-                            value="veronica">
+                        <input type="text" name="username" class="form-input" required placeholder="Enter admin username">
                     </div>
                     <div class="form-group">
                         <label class="form-label">
