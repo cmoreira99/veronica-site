@@ -550,32 +550,77 @@ function saveDirectlyToGitHub($content)
 
     try {
         // Convert content to JSON
-        // Create a copy to avoid modifying the original
         $contentForSave = $content;
 
-        // Remove profile image if it's too large (GitHub API has size limits)
+        // Handle large images by removing them from the GitHub save
+        // (You might want to implement a separate image storage solution)
+        $originalSize = strlen(json_encode($contentForSave));
+        error_log("📊 Original content size: " . number_format($originalSize) . " bytes");
+
+        // Remove profile image if it's too large
         if (isset($contentForSave['personal']['profileImage'])) {
             $imageSize = strlen($contentForSave['personal']['profileImage']);
-            if ($imageSize > 500000) { // 500KB limit for base64
+            if ($imageSize > 500000) { // 500KB limit for base64 images
                 error_log("⚠️ Removing large profileImage ($imageSize bytes) for GitHub save");
-                unset($contentForSave['personal']['profileImage']);
-            } else {
-                error_log("📸 Including profileImage in save ($imageSize bytes)");
+                $contentForSave['personal']['profileImage'] = null;
             }
         }
 
-        error_log("📊 Content structure validated");
+        // Remove large images from family members
+        if (isset($contentForSave['family'])) {
+            foreach ($contentForSave['family'] as $familyKey => &$familyGroup) {
+                if (isset($familyGroup['list'])) {
+                    foreach ($familyGroup['list'] as $index => &$person) {
+                        if (isset($person['image']) && strlen($person['image']) > 500000) {
+                            error_log("⚠️ Removing large family image for $familyKey[$index]");
+                            $person['image'] = null;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove large images from friends
+        if (isset($contentForSave['friends'])) {
+            foreach ($contentForSave['friends'] as $friendKey => &$friendGroup) {
+                if (isset($friendGroup['list'])) {
+                    foreach ($friendGroup['list'] as $index => &$friend) {
+                        if (isset($friend['image']) && strlen($friend['image']) > 500000) {
+                            error_log("⚠️ Removing large friend image for $friendKey[$index]");
+                            $friend['image'] = null;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove large gallery images
+        if (isset($contentForSave['gallery'])) {
+            foreach ($contentForSave['gallery'] as $index => &$item) {
+                if (isset($item['image']) && strlen($item['image']) > 500000) {
+                    error_log("⚠️ Removing large gallery image [$index]");
+                    $item['image'] = null;
+                }
+            }
+        }
+
         $jsonString = json_encode($contentForSave, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         if ($jsonString === false) {
             return ['success' => false, 'error' => 'JSON encoding failed: ' . json_last_error_msg()];
         }
 
-        error_log("📊 JSON size: " . strlen($jsonString) . " characters");
+        $finalSize = strlen($jsonString);
+        error_log("📊 Final JSON size: " . number_format($finalSize) . " bytes");
+
+        // Check if file is still too large for GitHub API (approaching 100MB limit)
+        if ($finalSize > 90000000) { // 90MB warning
+            error_log("⚠️ Warning: File is very large (" . number_format($finalSize) . " bytes)");
+        }
 
         // GitHub API URL
         $apiUrl = 'https://api.github.com/repos/' . GITHUB_OWNER . '/' . GITHUB_REPO . '/contents/' . DATA_FILE;
 
-        // Headers
+        // Headers - Use appropriate Accept header based on file size
         $headers = [
             'Authorization: token ' . $githubToken,
             'Accept: application/vnd.github.v3+json',
@@ -613,13 +658,13 @@ function saveDirectlyToGitHub($content)
             $requestBody['sha'] = $currentSha;
         }
 
-        // Send PUT request
+        // Send PUT request with longer timeout for large files
         $putContext = stream_context_create([
             'http' => [
                 'method' => 'PUT',
                 'header' => implode("\r\n", $headers),
                 'content' => json_encode($requestBody),
-                'timeout' => 30
+                'timeout' => 60 // Longer timeout for large files
             ]
         ]);
 
@@ -677,6 +722,8 @@ function safeGitHubSync()
     }
 
     $url = 'https://api.github.com/repos/' . GITHUB_OWNER . '/' . GITHUB_REPO . '/contents/' . DATA_FILE;
+
+    // First, try to get file info to check size
     $headers = [
         'Authorization: token ' . $githubToken,
         'Accept: application/vnd.github.v3+json',
@@ -687,24 +734,78 @@ function safeGitHubSync()
         'http' => [
             'method' => 'GET',
             'header' => implode("\r\n", $headers),
-            'timeout' => 10
+            'timeout' => 15 // Increased timeout for large files
         ]
     ]);
 
+    error_log("📥 Attempting to sync from GitHub...");
     $response = @file_get_contents($url, false, $context);
-    if ($response !== false) {
-        $data = json_decode($response, true);
-        if (isset($data['content'])) {
-            $content = json_decode(base64_decode($data['content']), true);
+
+    if ($response === false) {
+        error_log("❌ Failed to get file info from GitHub");
+        return 'offline';
+    }
+
+    $fileInfo = json_decode($response, true);
+    if (!$fileInfo || !isset($fileInfo['size'])) {
+        error_log("❌ Invalid GitHub API response");
+        return 'offline';
+    }
+
+    $fileSize = $fileInfo['size'];
+    error_log("📊 File size: " . number_format($fileSize) . " bytes");
+
+    // Handle files based on size
+    if ($fileSize <= 1048576) { // 1MB or less - use standard API
+        error_log("📥 Using standard Contents API (file ≤ 1MB)");
+
+        if (isset($fileInfo['content'])) {
+            $content = json_decode(base64_decode($fileInfo['content']), true);
             if ($content) {
                 $_SESSION['content'] = $content;
-                $_SESSION['github_file_sha'] = $data['sha'];
-                error_log("📥 Synced from GitHub");
+                $_SESSION['github_file_sha'] = $fileInfo['sha'];
+                error_log("✅ Synced from GitHub using Contents API");
                 return 'online';
             }
         }
+    } else {
+        // File is larger than 1MB - use raw media type
+        error_log("📥 Using Raw API for large file (file > 1MB)");
+
+        // For files > 1MB, we need to use the raw endpoint
+        $rawHeaders = [
+            'Authorization: token ' . $githubToken,
+            'Accept: application/vnd.github.v3.raw', // This is the key!
+            'User-Agent: Personal-Website-PHP'
+        ];
+
+        $rawContext = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => implode("\r\n", $rawHeaders),
+                'timeout' => 30 // Even longer timeout for large files
+            ]
+        ]);
+
+        $rawResponse = @file_get_contents($url, false, $rawContext);
+
+        if ($rawResponse !== false) {
+            // Raw response is the actual file content, not base64 encoded
+            $content = json_decode($rawResponse, true);
+            if ($content) {
+                $_SESSION['content'] = $content;
+                $_SESSION['github_file_sha'] = $fileInfo['sha']; // Use SHA from first request
+                error_log("✅ Synced large file from GitHub using Raw API");
+                return 'online';
+            } else {
+                error_log("❌ Failed to parse JSON from raw response");
+            }
+        } else {
+            error_log("❌ Failed to get raw content from GitHub");
+        }
     }
 
+    error_log("❌ GitHub sync failed");
     return 'offline';
 }
 
@@ -716,7 +817,7 @@ if (empty($_POST) && empty($_SESSION['content_loaded'])) {
     $cloudStatus = safeGitHubSync();
     $_SESSION['content_loaded'] = true; // Mark that we've loaded content
     error_log("📥 Initial GitHub sync completed");
-} else if (!empty($_POST)) {
+} elseif (!empty($_POST)) {
     // For admin operations, check if we have write access
     $writeToken = getGitHubTokenForWriting();
     $readToken = getGitHubTokenForReading();
